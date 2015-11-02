@@ -40,6 +40,7 @@ module Roby
                         'subdir' => subdir,
                         'basename' => basename,
                         'require_path' => require_path]
+                    puts local_vars
 
                     m.template 'class.rb', "#{require_path}.rb", :assigns => local_vars
                     register_in_aggregate_require_files(m, "require_file.rb", "#{require_path}.rb", "models/", "%s.rb")

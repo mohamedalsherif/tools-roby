@@ -303,6 +303,7 @@ module Roby
         # currently selected would be really too confusing
         def needs_to_be_in_current_app(allowed_outside: true)
             guessed_dir = self.class.guess_app_dir
+            @app_dir = self.class.guess_app_dir
             if guessed_dir && (@app_dir != guessed_dir)
                 raise NotInCurrentApp, "#{@app_dir} is currently selected, but the current directory is within #{guessed_dir}"
             elsif !guessed_dir && !allowed_outside
@@ -1132,7 +1133,7 @@ module Roby
 
         def register_generators
             Roby.app.load_base_config
-            RubiGen::Base.__sources = [RubiGen::PathSource.new(:roby, File.join(Roby::ROBY_ROOT_DIR, "generators"))]
+            RubiGen::Base.use_application_sources! :roby
             call_plugins(:register_generators, self)
         end
 
