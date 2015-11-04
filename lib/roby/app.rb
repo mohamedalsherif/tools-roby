@@ -1081,7 +1081,7 @@ module Roby
             Roby::Application.info "loading #{file} (#{absolute_path})"
             isolate_load_errors("ignored file #{file}") do
                 if file != absolute_path
-                    Kernel.require(file)
+                    Kernel.require absolute_path
                 else
                     Kernel.require absolute_path
                 end
