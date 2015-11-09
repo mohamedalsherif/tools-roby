@@ -198,7 +198,11 @@ module Roby
                     if !arguments.empty?
                         raise ArgumentError, "#{name} expects no arguments, but #{arguments.size} are given"
                     end
-                    result = action_interface.send(name).as_plan
+                    result = action_interface.send(name)
+                    if(!result.class.has_ancestor?(returned_type))
+                        raise ArgumentError, "#{name} is expected to return #{returned_type} but returned #{result.class}"
+                    end
+                    result = result.as_plan
                 else
                     default_arguments = self.arguments.inject(Hash.new) do |h, arg|
                         h[arg.name] = arg.default
@@ -210,7 +214,11 @@ module Roby
                             raise ArgumentError, "required argument #{arg.name} not given to #{name}"
                         end
                     end
-                    result = action_interface.send(name, arguments).as_plan
+                    result = action_interface.send(name, arguments)
+                    if(!result.class.has_ancestor?(returned_type))
+                        raise ArgumentError, "#{name} is expected to return #{returned_type} but returned #{result.class}"
+                    end
+                    result = result.as_plan
                 end
                 # Make the planning task inherit the model/argument flags
                 if planning_task = result.planning_task
