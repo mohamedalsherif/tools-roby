@@ -91,7 +91,7 @@ module Roby
                         end
                         const_set task_model_name, task_model
                         task_model.permanent_model = self.permanent_model?
-                        action_model.returns(task_model)
+                        action_model.returns(task_model.superclass)
                     end
                 end
 
