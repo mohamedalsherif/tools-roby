@@ -105,11 +105,11 @@ module Roby
             rescue Errno::EPIPE, IOError, Errno::ECONNRESET
                 raise ComError, "broken communication channel"
             rescue RuntimeError => e
-                puts "#{object} #{object.class}"
-                puts "  #{object.backtrace.join("\n  ")}" if object.respond_to?(:backtrace)
-                puts "#{e.message} #{e.class}"
-                puts "  #{e.backtrace.join("\n  ")}"
-                raise
+                # Workaround what seems to be a Ruby bug ...
+                if e.message =~ /can.t modify frozen IOError/
+                    raise ComError, "broken communication channel"
+                else raise
+                end
             end
         end
     end
