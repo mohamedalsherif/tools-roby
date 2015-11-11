@@ -37,9 +37,6 @@ class IO
 end
 
 class Set
-    def difference!(other_set)
-        substract(other_set)
-    end
 end
 
 module Enumerable
