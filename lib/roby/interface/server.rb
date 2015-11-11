@@ -109,6 +109,8 @@ module Roby
                 io.write_packet([:reply, reply])
             rescue ComError
                 raise
+            rescue IOError => e
+                puts e.backtrace.join("\n  ")
             rescue Exception => e
                 io.write_packet([:bad_call, e])
             end
