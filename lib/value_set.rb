@@ -2,11 +2,23 @@ require 'value_set/value_set'
 require 'utilrb/enumerable/to_s_helper'
 
 class ValueSet
-    def <<(obj); insert(obj) ; self end
+    def <<(obj); insert(obj); self end
     alias :| :union
     alias :& :intersection
     alias :- :difference
     include Enumerable
+
+    def intersect?(set)
+        intersects?(set)
+    end
+
+    def superset?(set)
+        include_all?(set.to_value_set)
+    end
+
+    def subtract(other_set)
+        difference!(other_set.to_value_set)
+    end
 
     def substract(other_set)
         difference!(other_set.to_value_set)
