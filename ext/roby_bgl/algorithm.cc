@@ -137,8 +137,13 @@ static std::set<VALUE> rb_to_set(VALUE object)
 
     std::set<VALUE> result_set;
     long length = RARRAY_LEN(object);
+#ifdef RARRAY_AREF
     for (long i = 0; i < length; ++i)
         result_set.insert(RARRAY_AREF(object, i));
+#else
+    for (long i = 0; i < length; ++i)
+        result_set.insert(RARRAY_PTR(object)[i]);
+#endif
     return result_set;
 }
 
