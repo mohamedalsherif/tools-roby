@@ -37,6 +37,16 @@ class IO
 end
 
 class Set
+    if !method_defined?(:intersect?)
+        def intersect?(set)
+            set.is_a?(Set) or raise ArgumentError, "value must be a set"
+            if size < set.size
+                any? { |o| set.include?(o) }
+            else
+                set.any? { |o| include?(o) }
+            end
+        end
+    end
 end
 
 module Enumerable
