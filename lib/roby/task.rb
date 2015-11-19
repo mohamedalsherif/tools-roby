@@ -103,13 +103,15 @@ module Roby
         # arguments (if there are any)
         def freeze_delayed_arguments
             if !arguments.static?
-                arguments.dup.each do |key, value|
+                result = Hash.new
+                arguments.each do |key, value|
                     if TaskArguments.delayed_argument?(value)
                         catch(:no_value) do
-                            __assign_argument__(key, value.evaluate_delayed_argument(self))
+                            result[key] = value.evaluate_delayed_argument(self)
                         end
                     end
                 end
+                __assign_arguments__(result)
             end
         end
 
@@ -137,6 +139,42 @@ module Roby
 		    end
 	    "#<#{to_s} executable=#{executable?} state=#{state} plan=#{plan.to_s}>"
 	end
+
+        # @api private
+        #
+        # Helper to assign multiple argument values at once
+        #
+        # It differs from calling __assign_arguments__ in a loop in two ways:
+        # 
+        # - it is common for subclasses to define a high-level argument that is,
+        #   in the end, propagated to lower-level arguments. This method handles
+        #   the fact that, when doing this, one will get parallel assignment of
+        #   the high-level and low-level values during e.g. log replay which would
+        #   fail in __assign_arguments__ since arguments are single-assignation
+        #
+        # - assignation is all-or-nothing
+        def __assign_arguments__(arguments)
+            initial_arguments = @arguments
+            initial_set_arguments = initial_arguments.assigned_arguments
+            current_arguments = initial_set_arguments.dup
+
+            # First assign normal values
+            arguments.each do |key, value|
+                @arguments = TaskArguments.new(self)
+                @arguments.merge!(initial_set_arguments)
+                __assign_argument__(key, value)
+                current_arguments.merge!(@arguments) do |k, v1, v2|
+                    if v1 != v2
+                        raise ArgumentError, "trying to override #{k}=#{v1} to #{v2}"
+                    end
+                    v1
+                end
+            end
+            initial_arguments.merge!(current_arguments)
+
+        ensure
+            @arguments = initial_arguments
+        end
 
         # Internal helper to set arguments by either using the argname= accessor
         # if there is one, or direct access to the @arguments instance variable
@@ -176,10 +214,7 @@ module Roby
             @reusable = true
 
 	    @arguments = TaskArguments.new(self)
-            # First assign normal values
-            arguments.each do |key, value|
-                __assign_argument__(key, value)
-            end
+            __assign_arguments__(arguments)
             # Now assign default values for the arguments that have not yet been
             # set
             model.arguments.each do |argname|
@@ -266,22 +301,29 @@ module Roby
 	# the task is not running.
 	def lifetime
 	    if running?
-		Time.now - history.first.time
+		Time.now - start_time
 	    end
 	end
 
         # Returns when this task has been started
         def start_time
-            if !history.empty?
-                history.first.time
+            if ev = start_event.last
+                ev.time
             end
         end
 
         # Returns when this task has finished
         def end_time
-            if finished?
-                history.last.time
+            if ev = stop_event.last
+                ev.time
             end
+        end
+
+        # The last event emitted by this task
+        #
+        # @return [TaskEvent,nil]
+        def last_event
+            each_event.map(&:last).compact.min_by(&:time)
         end
 
         def create_fresh_copy
@@ -292,7 +334,6 @@ module Roby
 	    super
 
 	    @name    = nil
-	    @history = old.history.dup
 
 	    @arguments = TaskArguments.new(self)
 	    arguments.force_merge! old.arguments
@@ -671,13 +712,13 @@ module Roby
 
             if finished? && !event.terminal?
                 raise EmissionFailed.new(nil, event),
-		    "#{self}.emit(#{event.symbol}, #{context}) called by #{plan.engine.propagation_sources.to_a} but the task has finished. Task has been terminated by #{event(:stop).history.first.sources}."
+                    "#{self}.emit(#{event.symbol}, #{context}) called by #{plan.engine.propagation_sources.to_a} but the task has finished. Task has been terminated by #{stop_event.last.sources}."
             elsif pending? && event.symbol != :start
                 raise EmissionFailed.new(nil, event),
 		    "#{self}.emit(#{event.symbol}, #{context}) called by #{plan.engine.propagation_sources.to_a} but the task has never been started"
             elsif running? && event.symbol == :start
                 raise EmissionFailed.new(nil, event),
-		    "#{self}.emit(#{event.symbol}, #{context}) called by #{plan.engine.propagation_sources.to_a} but the task is already running. Task has been started by #{event(:start).history.first.sources}."
+                    "#{self}.emit(#{event.symbol}, #{context}) called by #{plan.engine.propagation_sources.to_a} but the task is already running. Task has been started by #{start_event.last.sources}."
             end
 
 	    super if defined? super
@@ -996,20 +1037,64 @@ module Roby
         # Converts this object into a task object
 	def to_task; self end
 	
-	event :start, :command => true
+        # Event emitted when the task is started
+        #
+        # It is controlable by default, its command simply emitting the start
+        # event
+	event :start, command: true
 
-	# Define :stop before any other terminal event
+        # Event emitted when the task has stopped
+        #
+        # It is not controlable by default. If the task can be stopped without
+        # any specific action, call {Models::Task#terminates} on the task model. If it
+        # needs specific actions, define a controlable failed event and call
+        # {Models::Task#interruptible}
+        #
+        # @example task with simple termination
+        #   class MyTask < Roby::Task
+        #     terminates
+        #   end
+        #
+        # @example task with complex termination
+        #   class Mytask < Roby::Task
+        #     event :failed do
+        #       # Terminate the underlying process
+        #     end
+        #     interruptible
+        #   end
 	event :stop
-	event :success, :terminal => true
-	event :failed,  :terminal => true
 
+        # Event emitted when the task has successfully finished
+        #
+        # It is obviously forwarded to {#stop_event}
+	event :success, terminal: true
+
+        # Event emitted when the task has finished without performing its duty
+        #
+        # It is obviously forwarded to {#stop_event}
+	event :failed,  terminal: true
+
+        # Event emitted when the task's underlying {#execution_agent} finished
+        # while the task was running
+        #
+        # It is obviously forwarded to {#failed_event}
 	event :aborted
 	forward :aborted => :failed
 
+        # Event emitted when a task internal code block ({Models::Task#on} handler,
+        # {Models::Task#poll} block) raised an exception
+        #
+        # It signals {#stop_event} if {#stop_event} is controlable
         event :internal_error
-        # Forcefully mark internal_error as a failure event, even though it does
-        # not forwards to failed
-        class Task::InternalError; def failure?; true end end
+
+        class InternalError
+            # Mark the InternalError event as a failure event, even if it is not
+            # forwarded to the stop event at the model level
+            def failure?
+                true
+            end
+        end
+
         on :internal_error do |error|
             if error.context
                 @failure_reason = error.context.first
